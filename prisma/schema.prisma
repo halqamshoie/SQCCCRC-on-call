@@ -1,0 +1,211 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Enhanced Department model with configuration
+model Department {
+  id          Int         @id @default(autoincrement())
+  name        String
+  code        String      @unique // Short code: MED, LAB, NURS
+  color       String      @default("#3B82F6") // Hex color for UI theming
+  isClinical  Boolean     @default(true) // True for clinical (doctors), false for non-clinical (staff)
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  // Relationships
+  doctors     Doctor[]
+  specialties Specialty[]
+  users       User[]      // Coordinators assigned to this department
+}
+
+// Specialty model - subdivisions within departments
+model Specialty {
+  id           Int        @id @default(autoincrement())
+  name         String
+  description  String?
+  departmentId Int
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  
+  // Relationships
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  doctors      Doctor[]
+  onCallTiers  OnCallTier[]
+  shifts       Shift[]
+  
+  @@unique([departmentId, name]) // Prevent duplicate specialty names within a department
+}
+
+// On-call tier configuration per specialty
+model OnCallTier {
+  id                  Int       @id @default(autoincrement())
+  name                String    // "1st Call", "2nd Call", "Specialist", "Consultant", "Technologist"
+  level               Int       // Priority level: 1, 2, 3, etc.
+  displayOrder        Int       // Order for UI display
+  responseTimeMinutes Int?      // Expected response time SLA
+  specialtyId         Int
+  escalationTierId    Int?      // Next tier in escalation chain
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  
+  // Relationships
+  specialty           Specialty    @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  escalationTier      OnCallTier?  @relation("EscalationChain", fields: [escalationTierId], references: [id])
+  escalatedFrom       OnCallTier[] @relation("EscalationChain")
+  doctors             Doctor[]
+  shifts              Shift[]
+  escalationLogsFrom  EscalationLog[] @relation("FromTier")
+  escalationLogsTo    EscalationLog[] @relation("ToTier")
+  
+  @@unique([specialtyId, name]) // Prevent duplicate tier names within a specialty
+  @@index([specialtyId, level])
+}
+
+// Enhanced Doctor model
+model Doctor {
+  id              Int        @id @default(autoincrement())
+  name            String
+  email           String?    // Staff email address
+  gsmPersonal     String?
+  gsmCccrc        String?    // CCCRC GSM number
+  extension       String?    // Can store multiple extensions comma-separated
+  jobTitle        String?    // Custom title: "Technologist", "Nursing Supervisor", etc.
+  departmentId    Int
+  specialtyId     Int?       // Can be null for general department staff
+  defaultTierId   Int?       // Their usual on-call tier
+  isActive        Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  
+  // Relationships
+  department      Department @relation(fields: [departmentId], references: [id])
+  specialty       Specialty? @relation(fields: [specialtyId], references: [id])
+  defaultTier     OnCallTier? @relation(fields: [defaultTierId], references: [id])
+  shifts              Shift[]
+  swapRequestsFrom    ShiftSwapRequest[] @relation("SwapRequester")
+  swapRequestsTo      ShiftSwapRequest[] @relation("SwapTarget")
+  
+  @@index([departmentId, specialtyId])
+}
+
+// Enhanced Shift model with tier support
+model Shift {
+  id          Int       @id @default(autoincrement())
+  doctorId    Int
+  doctor      Doctor    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  specialtyId Int?
+  specialty   Specialty? @relation(fields: [specialtyId], references: [id])
+  tierId      Int
+  tier        OnCallTier @relation(fields: [tierId], references: [id])
+  date        DateTime  // Shift start date
+  endDate     DateTime? // Shift end date (for multi-day shifts)
+  startTime   String?   // Time in HH:MM format (24-hour)
+  endTime     String?   // Time in HH:MM format (24-hour)
+  isBackup    Boolean   @default(false) // Is this a backup assignment?
+  isFixed     Boolean   @default(false) // Permanent/fixed assignment (doesn't rotate)
+  notes       String?   // Special instructions
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Swap request relations
+  swapRequestsAsRequester ShiftSwapRequest[] @relation("RequesterShift")
+  swapRequestsAsTarget    ShiftSwapRequest[] @relation("TargetShift")
+  
+  @@index([date])
+  @@index([doctorId, date])
+  @@index([specialtyId, date])
+}
+
+// Escalation event logging
+model EscalationLog {
+  id          Int       @id @default(autoincrement())
+  fromTierId  Int
+  toTierId    Int
+  reason      String?   // Why escalation occurred
+  timestamp   DateTime  @default(now())
+  
+  // Relationships
+  fromTier    OnCallTier @relation("FromTier", fields: [fromTierId], references: [id])
+  toTier      OnCallTier @relation("ToTier", fields: [toTierId], references: [id])
+  
+  @@index([timestamp])
+}
+
+model EmergencyCode {
+  id          Int      @id @default(autoincrement())
+  code        String   // e.g. "CODE BLUE"
+  extension   String?  // e.g. "7777"
+  color       String   // e.g. "#2563EB" (hex color)
+  isActive    Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+  description String?
+}
+
+// User roles: ADMIN can manage everything, COORDINATOR can manage schedules, USER is read-only
+model User {
+  id            Int         @id @default(autoincrement())
+  username      String      @unique // LDAP sAMAccountName
+  displayName   String
+  email         String?
+  localPassword String?     // Optional: For fallback auth when LDAP unreachable (hashed)
+  role          String      @default("USER") // ADMIN, COORDINATOR, USER
+  isActive      Boolean     @default(true)
+  departmentId  Int?        // Department assignment for coordinators (NULL for admins and unassigned users)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  // Relationships
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+}
+
+// Shift swap request with approval workflow
+model ShiftSwapRequest {
+  id                Int       @id @default(autoincrement())
+  requesterShiftId  Int       // The shift the requester wants to give away
+  targetShiftId     Int?      // The shift they want in return (null = open request)
+  requesterId       Int       // Doctor requesting the swap
+  targetId          Int?      // Doctor they want to swap with
+  status            String    @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  reason            String?   // Why they want to swap
+  adminNotes        String?   // Notes from admin on approval/rejection
+  reviewedBy        String?   // Username of admin who reviewed
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relationships
+  requesterShift    Shift     @relation("RequesterShift", fields: [requesterShiftId], references: [id])
+  targetShift       Shift?    @relation("TargetShift", fields: [targetShiftId], references: [id])
+  requester         Doctor    @relation("SwapRequester", fields: [requesterId], references: [id])
+  target            Doctor?   @relation("SwapTarget", fields: [targetId], references: [id])
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([createdAt])
+}
+
+// Audit log for tracking all admin actions
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  action      String   // CREATE_SHIFT, UPDATE_SHIFT, DELETE_SHIFT, APPROVE_SWAP, etc.
+  entityType  String   // Shift, Doctor, Department, SwapRequest, etc.
+  entityId    Int      // ID of the affected entity
+  userId      String   // Username of who performed the action
+  userName    String   // Display name of who performed it
+  details     String?  // JSON string with before/after data
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([userId])
+}

@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "SQCCCRC On-Call",
+    "slug": "sqcccrc-on-call",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "om.gov.sqcccrc.oncall"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "om.gov.sqcccrc.oncall"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
