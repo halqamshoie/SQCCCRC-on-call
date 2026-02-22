@@ -1,7 +1,7 @@
 // Change this to your server's IP address
 // Use your computer's local IP when testing on a physical device
 // Use localhost when testing in the simulator
-const API_BASE = 'http://172.19.25.86:3000/api/mobile'
+const API_BASE = 'http://172.19.25.112:3000/api/mobile'
 
 let authToken: string | null = null
 
